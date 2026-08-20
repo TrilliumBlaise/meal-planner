@@ -303,7 +303,7 @@
         }
 
         getMealById(id) {
-          return this.meals.find(m => m.id === Number(id))
+          return this.meals.find(m => m.id === id)
         }
 
         getActiveMeal() {
@@ -311,17 +311,17 @@
         }
 
         setActiveMealId(id) {
-          this.activeMealId = Number(id)
+          this.activeMealId = id
         }
 
         async upsertMeal(id, name, frequency, recipe) {
           if (id) {
-            const idx = this.meals.findIndex(m => m.id === Number(id))
+            const idx = this.meals.findIndex(m => m.id === id)
             if (idx !== -1) {
               this.meals[idx] = { ...this.meals[idx], name, frequency, recipe }
             }
           } else {
-            const newId = this.meals.length > 0 ? Math.max(...this.meals.map(m => m.id)) + 1 : 1
+            const newId = self.cripto.randomUUID();
             this.meals.push({ id: newId, name, frequency, recipe, historyWeight: 5 })
             this.activeMealId = newId
           }
@@ -329,8 +329,8 @@
         }
 
         async deleteMeal(id) {
-          this.meals = this.meals.filter(m => m.id !== Number(id))
-          if (this.activeMealId === Number(id)) {
+          this.meals = this.meals.filter(m => m.id !== id)
+          if (this.activeMealId === id) {
             this.activeMealId = this.meals[0]?.id || null
           }
           await this.save()
@@ -794,11 +794,80 @@
         }
       }
 
+      async function migrateLocalStorageToCloud(storageService) {
+          const OLD_MEALS_KEY = 'rolodex_meals';
+          const OLD_PLAN_KEY = 'current_meal_plan';
+      
+          // 1. Check if there are any old meals sitting in her device's localStorage
+          const storedMealsText = localStorage.getItem(OLD_MEALS_KEY);
+          if (!storedMealsText) {
+              console.log("No old localStorage data found to migrate.");
+              return; 
+          }
+      
+          console.log("Found old data! Starting migration to Supabase...");
+      
+          try {
+              const oldMeals = JSON.parse(storedMealsText);
+              
+              // Load old calendar if it exists
+              let oldCalendarDays = {};
+              const storedPlanText = localStorage.getItem(OLD_PLAN_KEY);
+              if (storedPlanText) {
+                  const parsedPlan = JSON.parse(storedPlanText);
+                  oldCalendarDays = parsedPlan.days || {};
+              }
+      
+              // 2. Create a map to link old number IDs to new string UUIDs
+              // Example: { 1: "f81d4fae-7dec-11d0-a765-00a0c91e6bf6" }
+              const idMap = {};
+              const migratedMeals = oldMeals.map(meal => {
+                  const newUuid = self.crypto.randomUUID(); // Generates clean native UUID
+                  idMap[meal.id] = newUuid; 
+                  
+                  return {
+                      ...meal,
+                      id: newUuid // Overwrite numeric ID with string UUID
+                  };
+              });
+      
+              // 3. Update the calendar days so they point to the new UUID strings
+              const migratedCalendarDays = {};
+              for (let day in oldCalendarDays) {
+                  const oldMealId = oldCalendarDays[day];
+                  if (idMap[oldMealId]) {
+                      migratedCalendarDays[day] = idMap[oldMealId]; // Match with the new UUID
+                  }
+              }
+      
+              const migratedCalendarPayload = {
+                  monthKey: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                  days: migratedCalendarDays
+              };
+      
+              // 4. Send the updated records to Supabase row 1
+              await storageService.saveKey('meals', migratedMeals);
+              await storageService.saveKey('calendar_plan', migratedCalendarPayload);
+      
+              console.log("Migration successful! Data seeded to Supabase.");
+      
+              // 5. Clean up localStorage so this script never triggers on this device again
+              localStorage.removeItem(OLD_MEALS_KEY);
+              localStorage.removeItem(OLD_PLAN_KEY);
+      
+          } catch (err) {
+              console.error("Migration failed:", err);
+          }
+      }
+
       // Execution Blueprint bootstrap
       window.onload = async function () {
         try {
           const storageService = new CloudStorageService()
 
+          // RUN MIGRATION: Checks local storage, converts IDs to UUIDs, seeds Supabase, cleans up keys
+          await migrateLocalStorageToCloud(storageService);
+          
           // 2. Data State Manager Entities
           const rolodex = new MealRolodex(storageService)
           const calendar = new MealPlannerCalendar(rolodex, storageService)
