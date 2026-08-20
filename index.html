@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Retro Meal Planner</title>
+    <!-- Tailwind CSS for Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for the Index Card look -->
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Special+Elite&display=swap" rel="stylesheet" />
+
+    <script src="https://jsdelivr.net"></script>
+    <style>
+      body {
+        -webkit-tap-highlight-color: transparent;
+      }
+      .index-card {
+        font-family: 'Special Elite', monospace;
+        background-color: #fffef0;
+        background-image: linear-gradient(#e1e0d0 1px, transparent 1px);
+        background-size: 100% 2rem;
+        line-height: 2rem;
+        position: relative;
+        box-shadow:
+          0 10px 20px rgba(0, 0, 0, 0.1),
+          0 3px 6px rgba(0, 0, 0, 0.05);
+        border: 1px solid #d2d1c0;
+      }
+      .index-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 2rem;
+        height: 100%;
+        width: 1px;
+        background-color: #ff9999;
+      }
+      .handwritten {
+        font-family: 'Caveat', cursive;
+        font-size: 1.4rem;
+        color: #1a365d;
+        line-height: 2rem;
+      }
+      /* Adaptive Mobile Bottom Sheet Modals */
+      @media (max-width: 640px) {
+        .mobile-bottom-sheet {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          top: auto;
+          border-radius: 1rem 1rem 0 0;
+          max-height: 85vh;
+          display: flex;
+          flex-direction: column;
+        }
+        .mobile-bottom-sheet .modal-body {
+          overflow-y: auto;
+          flex: 1;
+        }
+      }
+      /* Dim elements and disable clicks during cloud saves */
+      .ui-loading {
+        opacity: 0.5;
+        pointer-events: none;
+        cursor: wait !important;
+      }
+
+      /* Spinner element helper */
+      .spinner-text::after {
+        content: ' ⏳';
+        animation: blink 1s infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-stone-100 min-h-screen text-stone-800 font-sans pb-24 sm:pb-12">
+    <!-- Header Navigation -->
+    <header class="bg-amber-800 text-stone-100 p-3.5 shadow-md sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto flex justify-between items-center">
+        <h1 class="text-lg font-bold tracking-wide flex items-center gap-1.5">🍳 Meal Planner</h1>
+        <div class="flex gap-2">
+          <button id="btn-calendar-view" class="px-3.5 py-1.5 rounded bg-amber-900 text-white text-xs font-semibold transition shadow">
+            📅 Plan
+          </button>
+          <button id="btn-rolodex-view" class="px-3.5 py-1.5 rounded bg-amber-700 text-stone-200 text-xs font-semibold transition shadow">
+            🗂️ Cards
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-2 sm:px-4 mt-3">
+      <!-- ================= CALENDAR VIEW ================= -->
+      <section id="calendar-view" class="tab-content">
+        <div class="bg-white p-3 sm:p-6 rounded-xl shadow-sm border border-stone-200">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3.5 gap-3">
+            <div>
+              <h2 id="calendar-month-year" class="text-xl sm:text-2xl font-extrabold text-stone-700">Loading Month...</h2>
+            </div>
+            <button
+              id="btn-generate-plan"
+              class="w-full sm:w-auto bg-emerald-600 active:bg-emerald-700 text-white font-bold py-3 px-5 rounded-xl shadow text-center text-sm tracking-wide"
+            >
+              🎲 Generate Smart Plan
+            </button>
+          </div>
+
+          <!-- Days of Week Headers -->
+          <div class="grid grid-cols-7 gap-1 text-center font-bold text-stone-500 text-[11px] sm:text-xs border-b pb-1.5 mb-1.5">
+            <div>Sun</div>
+            <div>Mon</div>
+            <div>Tue</div>
+            <div>Wed</div>
+            <div>Thu</div>
+            <div>Fri</div>
+            <div>Sat</div>
+          </div>
+          <!-- Dynamic Day Grid Matrix -->
+          <div id="calendar-days" class="grid grid-cols-7 gap-1 sm:gap-2 auto-rows-[75px] sm:auto-rows-[115px]">
+            <!-- Days injected by JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ROLODEX VIEW ================= -->
+      <section id="rolodex-view" class="tab-content hidden">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+          <!-- Recipe Index Panel -->
+          <div class="md:col-span-4 bg-white p-4 rounded-xl shadow-sm border border-stone-200">
+            <div class="flex justify-between items-center mb-3">
+              <h3 class="text-base font-bold text-stone-700">Recipe Index</h3>
+              <button
+                id="btn-new-card"
+                class="bg-amber-600 active:bg-amber-700 text-white py-1.5 px-3 rounded-lg text-xs font-bold shadow transition"
+              >
+                ➕ New Card
+              </button>
+            </div>
+            <div id="recipe-list" class="grid grid-cols-1 gap-1.5 max-h-[220px] md:max-h-[500px] overflow-y-auto pr-1">
+              <!-- List entries dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Index Card Display -->
+          <div class="md:col-span-8">
+            <div id="rolodex-card" class="index-card w-full min-h-[340px] sm:min-h-[440px] p-4 sm:p-7 rounded-xl relative">
+              <!-- Card dynamic structural content -->
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= ADAPTIVE MODALS ================= -->
+
+    <!-- Day Detail & Adjustment Modal -->
+    <div id="day-modal" class="fixed inset-0 bg-black/60 hidden z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity">
+      <div class="bg-white mobile-bottom-sheet sm:rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-stone-200">
+        <div class="bg-amber-800 text-white p-4 flex justify-between items-center shrink-0">
+          <h3 id="modal-date-title" class="font-bold text-sm sm:text-base">Day Details</h3>
+          <button data-close="day-modal" class="text-2xl p-2 hover:text-stone-300">&times;</button>
+        </div>
+        <div class="p-4 sm:p-6 space-y-4 modal-body">
+          <div>
+            <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">Assigned Meal</label>
+            <select id="modal-meal-select" class="w-full p-3 border rounded-xl bg-stone-50 text-stone-800 text-sm focus:ring-2 focus:ring-amber-500">
+              <!-- Filled via JS -->
+            </select>
+          </div>
+          <div id="modal-recipe-box" class="bg-stone-50 p-3.5 rounded-xl border border-stone-200 max-h-40 overflow-y-auto hidden">
+            <h4 class="font-bold text-stone-700 text-xs uppercase tracking-wider mb-1">Quick Recipe View:</h4>
+            <p id="modal-recipe-text" class="text-xs sm:text-sm text-stone-600 whitespace-pre-wrap font-mono"></p>
+          </div>
+          <div class="pt-3 border-t shrink-0">
+            <button id="btn-save-day" class="w-full py-3.5 bg-emerald-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow">
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recipe Editor Modal -->
+    <div id="recipe-modal" class="fixed inset-0 bg-black/60 hidden z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity">
+      <div class="bg-white mobile-bottom-sheet sm:rounded-xl shadow-2xl max-w-xl w-full overflow-hidden border border-stone-200">
+        <div class="bg-amber-800 text-white p-4 flex justify-between items-center shrink-0">
+          <h3 id="recipe-modal-title" class="font-bold text-sm sm:text-base">Edit Recipe Card</h3>
+          <div class="flex items-center gap-1">
+            <button id="delete-recipe-btn" class="text-lg p-2 text-red-200 hover:text-red-400 hidden" title="Delete Card">🗑️</button>
+            <button data-close="recipe-modal" class="text-2xl p-2 hover:text-stone-300">&times;</button>
+          </div>
+        </div>
+        <div class="p-4 sm:p-6 space-y-3.5 modal-body">
+          <input type="hidden" id="edit-meal-id" />
+          <div>
+            <label class="block text-xs font-bold text-stone-500 uppercase mb-1">Meal Name</label>
+            <input type="text" id="edit-meal-name" class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-amber-500 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-stone-500 uppercase mb-1">Frequency Plan Rule</label>
+            <select id="edit-meal-frequency" class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-amber-500 text-sm">
+              <option value="weekly">Weekly Appearance</option>
+              <option value="monthly">Monthly Appearance</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-stone-500 uppercase mb-1">Recipe Ingredients / Blueprint Notes</label>
+            <textarea
+              id="edit-meal-recipe"
+              rows="4"
+              class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-amber-500 text-xs sm:text-sm font-mono"
+              placeholder="Steps details..."
+            ></textarea>
+          </div>
+          <div class="pt-3 border-t shrink-0">
+            <button id="btn-save-recipe" class="w-full py-3.5 bg-amber-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow">
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= APPLICATION CODE (OOP REWRITE) ================= -->
+    <script>
+      const SUPABASE_URL = 'https://hqtedzxcxgrqutdutcwd.supabase.co'
+      const SUPABASE_ANON_KEY = 'sb_publishable_JeuMBPkyQHbU7RHJ_aQibQ_6IuY_LP2'
+
+      // Uses the main "supabase" library tool to create your custom client
+      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+      /**
+       * Data Service handling cloud storage with Supabase
+       */
+      class CloudStorageService {
+        constructor() {
+          this.tableName = 'app_data'
+          this.rowId = 1
+        }
+
+        // Single source of truth fetch from Supabase
+        async fetchAllData() {
+          try {
+            const { data, error } = await supabaseClient.from(this.tableName).select('json_content').eq('id', this.rowId).single()
+
+            if (error) throw error
+            return data?.json_content || {}
+          } catch (err) {
+            console.warn('Cloud read failed or empty. Using fallback local state.', err.message)
+            return {}
+          }
+        }
+
+        // Save a specific key (like 'meals' or 'calendar_plan') without erasing other keys
+        async saveKey(key, dataToSave) {
+          try {
+            // 1. Fetch current full state so we don't overwrite other properties
+            const currentFullData = await this.fetchAllData()
+
+            // 2. Patch only the property we care about
+            currentFullData[key] = dataToSave
+
+            // 3. Push the entire unified payload back up
+            const { error } = await supabaseClient.from(this.tableName).update({ json_content: currentFullData }).eq('id', this.rowId)
+
+            if (error) throw error
+            console.log(`Cloud storage updated for key: [${key}]`)
+          } catch (err) {
+            console.error(`Failed to save key [${key}] to cloud:`, err.message)
+          }
+        }
+      }
+
+      /**
+       * Class managing the Data layer (Recipes / Rolodex Items)
+       */
+      class MealRolodex {
+        constructor(storageService) {
+          this.storageService = storageService
+          this.meals = []
+          this.activeMealId = null
+        }
+
+        async init() {
+          const cloudData = await this.storageService.fetchAllData()
+          if (cloudData && cloudData.meals) this.meals = cloudData.meals
+
+          this.activeMealId = this.meals[0]?.id || null
+        }
+
+        // Your original save method now just routes to the cloud helper
+        async save() {
+          await this.storageService.saveKey('meals', this.meals)
+        }
+
+        getAll() {
+          return this.meals
+        }
+
+        getMealById(id) {
+          return this.meals.find(m => m.id === Number(id))
+        }
+
+        getActiveMeal() {
+          return this.getMealById(this.activeMealId)
+        }
+
+        setActiveMealId(id) {
+          this.activeMealId = Number(id)
+        }
+
+        async upsertMeal(id, name, frequency, recipe) {
+          if (id) {
+            const idx = this.meals.findIndex(m => m.id === Number(id))
+            if (idx !== -1) {
+              this.meals[idx] = { ...this.meals[idx], name, frequency, recipe }
+            }
+          } else {
+            const newId = this.meals.length > 0 ? Math.max(...this.meals.map(m => m.id)) + 1 : 1
+            this.meals.push({ id: newId, name, frequency, recipe, historyWeight: 5 })
+            this.activeMealId = newId
+          }
+          await this.save()
+        }
+
+        async deleteMeal(id) {
+          this.meals = this.meals.filter(m => m.id !== Number(id))
+          if (this.activeMealId === Number(id)) {
+            this.activeMealId = this.meals[0]?.id || null
+          }
+          await this.save()
+        }
+      }
+
+      /**
+       * Class managing the Temporal Plan layer (Dates & Scheduling)
+       */
+      class MealPlannerCalendar {
+        constructor(rolodex, storageService) {
+          this.rolodex = rolodex
+          this.storageService = storageService
+
+          // Initialize time contexts instantly
+          const now = new Date()
+          this.year = now.getFullYear()
+          this.monthIndex = now.getMonth()
+          this.totalDays = new Date(this.year, this.monthIndex + 1, 0).getDate()
+          this.startDayOfWeek = new Date(this.year, this.monthIndex, 1).getDay()
+          this.monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+          // Unique key for the current month/year combination (e.g., "2026-06")
+          this.currentMonthKey = `${this.year}-${String(this.monthIndex + 1).padStart(2, '0')}`
+
+          this.currentPlan = {}
+        }
+
+        // NEW: Because we fetch from the web, initializing now happens in a separate step
+        async init() {
+          const cloudData = await this.storageService.fetchAllData()
+
+          if (cloudData && cloudData.calendar_plan) {
+            const parsed = cloudData.calendar_plan
+            // Clear plan rules if the calendar month shifted forward
+            if (parsed.monthKey === this.currentMonthKey) {
+              this.currentPlan = parsed.days || {}
+              return
+            }
+          }
+          this.currentPlan = {}
+        }
+
+        // Your original save method now calls the cloud helper
+        async save() {
+          const payload = {
+            monthKey: this.currentMonthKey,
+            days: this.currentPlan,
+          }
+          await this.storageService.saveKey('calendar_plan', payload)
+        }
+
+        getMonthYearString() {
+          return `${this.monthNames[this.monthIndex]} ${this.year}`
+        }
+
+        getMealIdForDay(day) {
+          return this.currentPlan[day] || null
+        }
+
+        // Made async because it calls this.save() which is now async
+        async assignMealToDay(day, mealId) {
+          if (mealId) {
+            this.currentPlan[day] = Number(mealId)
+          } else {
+            delete this.currentPlan[day]
+          }
+          await this.save()
+        }
+
+        // Made async because it calls this.save() which is now async
+        async removeMealFromAllDays(mealId) {
+          for (let day in this.currentPlan) {
+            if (this.currentPlan[day] === Number(mealId)) delete this.currentPlan[day]
+          }
+          await this.save()
+        }
+
+        // Made async because it calls this.save() which is now async
+        async generateSmartPlan() {
+          const localPlan = {}
+          const meals = this.rolodex.getAll()
+          const weeklyPool = meals.filter(m => m.frequency === 'weekly')
+          const monthlyPool = meals.filter(m => m.frequency === 'monthly')
+
+          if (weeklyPool.length === 0 && monthlyPool.length === 0) return false
+
+          const dynamicUsedMonthlyIds = new Set()
+
+          for (let day = 1; day <= this.totalDays; day++) {
+            let targetPool = this.determineTargetPool(day, weeklyPool, monthlyPool, dynamicUsedMonthlyIds)
+
+            if (targetPool.length === 0) {
+              dynamicUsedMonthlyIds.clear()
+              targetPool = this.getFallbackPool(weeklyPool, monthlyPool, meals)
+            }
+
+            const selectedMeal = this.pickWeightedItem(targetPool)
+            if (selectedMeal) {
+              localPlan[day] = selectedMeal.id
+              if (selectedMeal.frequency === 'monthly') {
+                dynamicUsedMonthlyIds.add(selectedMeal.id)
+              }
+            }
+          }
+
+          this.currentPlan = localPlan
+          await this.save()
+          return true
+        }
+
+        determineTargetPool(day, weeklyPool, monthlyPool, dynamicUsedMonthlyIds) {
+          const isOddDay = day % 2 !== 0
+          if (isOddDay && weeklyPool.length > 0) return [...weeklyPool]
+          return monthlyPool.filter(m => !dynamicUsedMonthlyIds.has(m.id))
+        }
+
+        getFallbackPool(weeklyPool, monthlyPool, meals) {
+          if (monthlyPool.length > 0) return [...monthlyPool]
+          if (weeklyPool.length > 0) return [...weeklyPool]
+          return [...meals]
+        }
+
+        pickWeightedItem(pool) {
+          const totalWeight = pool.reduce((sum, item) => sum + (Number(item.historyWeight) || 0) + 1, 0)
+          let randomTrack = Math.random() * totalWeight
+
+          for (let item of pool) {
+            const itemWeight = (Number(item.historyWeight) || 0) + 1
+            if (randomTrack <= itemWeight) return item
+            randomTrack -= itemWeight
+          }
+          return pool[0]
+        }
+      }
+
+      /**
+       * View Component specifically managing the Calendar DOM Grid
+       */
+      class CalendarView {
+        constructor(rolodex, calendar) {
+          this.rolodex = rolodex
+          this.calendar = calendar
+        }
+
+        render() {
+          document.getElementById('calendar-month-year').innerText = this.calendar.getMonthYearString()
+          const container = document.getElementById('calendar-days')
+          container.innerHTML = ''
+
+          // Pad empty day blocks
+          for (let i = 0; i < this.calendar.startDayOfWeek; i++) {
+            let pad = document.createElement('div')
+            pad.className = 'bg-stone-50/40 border border-stone-100 rounded-lg'
+            container.appendChild(pad)
+          }
+
+          // Render day blocks
+          for (let day = 1; day <= this.calendar.totalDays; day++) {
+            let dayTile = document.createElement('div')
+            dayTile.className =
+              'bg-stone-50 border border-stone-200 p-1 sm:p-2 rounded-lg flex flex-col justify-between hover:border-amber-500 active:bg-amber-50 cursor-pointer transition shadow-sm overflow-hidden'
+            dayTile.dataset.day = day // Controller will read this click target
+
+            let dayNumber = document.createElement('span')
+            dayNumber.className = 'font-bold text-stone-500 text-[11px] sm:text-xs'
+            dayNumber.innerText = day
+            dayTile.appendChild(dayNumber)
+
+            let mealNameContainer = document.createElement('div')
+            mealNameContainer.className =
+              'text-[9px] sm:text-xs font-semibold text-amber-900 truncate bg-amber-100/70 p-0.5 sm:p-1 rounded text-center'
+
+            let assignedMealId = this.calendar.getMealIdForDay(day)
+            let matchedMeal = this.rolodex.getMealById(assignedMealId)
+
+            if (matchedMeal) {
+              mealNameContainer.innerText = matchedMeal.name
+              mealNameContainer.className += matchedMeal.frequency === 'weekly' ? ' border-l-2 border-blue-500' : ' border-l-2 border-purple-500'
+            } else {
+              mealNameContainer.innerText = '+ Add'
+              mealNameContainer.className = 'text-center text-[9px] text-stone-400 italic'
+            }
+
+            dayTile.appendChild(mealNameContainer)
+            container.appendChild(dayTile)
+          }
+        }
+      }
+
+      /**
+       * View Component specifically managing the Recipe List & Detail Card DOM
+       */
+      class RolodexView {
+        constructor(rolodex, onSelectCallback) {
+          this.rolodex = rolodex
+          this.onSelect = onSelectCallback // Tells controller when active selection changes
+        }
+
+        renderList() {
+          const listContainer = document.getElementById('recipe-list')
+          listContainer.innerHTML = ''
+
+          this.rolodex.getAll().forEach(meal => {
+            let btn = document.createElement('button')
+            btn.className = `w-full text-left px-3 py-2.5 text-xs sm:text-sm rounded-lg font-medium transition flex items-center justify-between gap-2 border ${
+              meal.id === this.rolodex.activeMealId
+                ? 'bg-amber-100 text-amber-900 border-amber-500 md:border-l-4 md:border-amber-700'
+                : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+            }`
+            btn.onclick = () => {
+              this.rolodex.setActiveMealId(meal.id)
+              this.onSelect()
+            }
+
+            let nameSpan = document.createElement('span')
+            nameSpan.className = 'truncate'
+            nameSpan.innerText = meal.name
+
+            let badge = document.createElement('span')
+            badge.className = `text-[9px] uppercase font-bold px-1 py-0.2 rounded shrink-0 ${
+              meal.frequency === 'weekly' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+            }`
+            badge.innerText = meal.frequency === 'weekly' ? 'Wk' : 'Mo'
+
+            btn.appendChild(nameSpan)
+            btn.appendChild(badge)
+            listContainer.appendChild(btn)
+          })
+        }
+
+        renderCard(onEditClickCallback) {
+          const cardDisplay = document.getElementById('rolodex-card')
+          let currentMeal = this.rolodex.getActiveMeal()
+
+          if (currentMeal) {
+            cardDisplay.innerHTML = `
+                <div class="flex justify-between items-start border-b border-stone-300 pb-2 mb-3">
+                    <div class="min-w-0 pr-2">
+                        <span class="text-[10px] uppercase font-extrabold tracking-wider ${currentMeal.frequency === 'weekly' ? 'text-blue-600' : 'text-purple-600'}">${currentMeal.frequency} Target</span>
+                        <h2 class="text-base sm:text-xl font-bold font-mono text-stone-800 truncate">${currentMeal.name}</h2>
+                    </div>
+                    <button id="btn-trigger-edit" class="bg-stone-200 active:bg-stone-300 px-2.5 py-1 text-xs rounded-lg border border-stone-300 transition shrink-0 font-mono">✏️ Edit</button>
+                </div>
+                <div class="overflow-y-auto max-h-[220px] sm:max-h-[300px] pr-1">
+                    <div class="handwritten whitespace-pre-wrap pl-2 sm:pl-4">${currentMeal.recipe || 'No instructions compiled yet.'}</div>
+                </div>
+            `
+            document.getElementById('btn-trigger-edit').onclick = () => onEditClickCallback(currentMeal.id)
+          } else {
+            cardDisplay.innerHTML = `<div class="text-center text-stone-400 pt-24 text-sm">Select or create a recipe card.</div>`
+          }
+        }
+      }
+
+      /**
+       * Master Controller orchestrating tab switches, modals, button events, and loading statuses
+       */
+      class AppController {
+        constructor(rolodex, calendar) {
+          this.rolodex = rolodex
+          this.calendar = calendar
+          this.activeTargetDay = null
+
+          // Initialize sub-views
+          this.calendarView = new CalendarView(rolodex, calendar)
+          this.rolodexView = new RolodexView(rolodex, () => this.refreshRolodexContainer())
+        }
+
+        init() {
+          this.bindEvents()
+          this.calendarView.render()
+        }
+
+        // NEW: Central manager to show loading status on a clicked button
+        setLoadingState(buttonId, isLoading) {
+          const btn = document.getElementById(buttonId)
+          if (!btn) return
+
+          if (isLoading) {
+            btn.classList.add('ui-loading', 'spinner-text')
+            btn.disabled = true
+          } else {
+            btn.classList.remove('ui-loading', 'spinner-text')
+            btn.disabled = false
+          }
+        }
+
+        bindEvents() {
+          // Tab switching routing
+          document.getElementById('btn-calendar-view').addEventListener('click', () => this.switchTab('calendar-view'))
+          document.getElementById('btn-rolodex-view').addEventListener('click', () => this.switchTab('rolodex-view'))
+
+          // Smart Generator Trigger
+          document.getElementById('btn-generate-plan').addEventListener('click', async () => {
+            this.setLoadingState('btn-generate-plan', true)
+            const success = await this.calendar.generateSmartPlan()
+            this.setLoadingState('btn-generate-plan', false)
+
+            if (success) {
+              this.calendarView.render()
+            } else {
+              alert('Please add recipes to your rolodex first!')
+            }
+          })
+
+          // Event delegation for day blocks inside calendar view wrapper
+          document.getElementById('calendar-days').addEventListener('click', e => {
+            const tile = e.target.closest('[data-day]')
+            if (tile) this.openDayModal(Number(tile.dataset.day))
+          })
+
+          // Modals & Action submissions
+          document.getElementById('btn-new-card').addEventListener('click', () => this.openNewMealModal())
+          document.getElementById('btn-save-recipe').addEventListener('click', () => this.handleSaveRecipe())
+          document.getElementById('delete-recipe-btn').addEventListener('click', () => this.handleDeleteRecipe())
+          document.getElementById('btn-save-day').addEventListener('click', () => this.handleSaveDayAdjustment())
+
+          // Universal modal closures
+          document.querySelectorAll('[data-close]').forEach(btn => {
+            btn.addEventListener('click', e => this.closeModal(e.target.getAttribute('data-close')))
+          })
+
+          // Background mask overlay clicks to close
+          ;['day-modal', 'recipe-modal'].forEach(id => {
+            const modalEl = document.getElementById(id)
+            modalEl.addEventListener('click', e => {
+              if (e.target === modalEl) this.closeModal(id)
+            })
+          })
+        }
+
+        switchTab(tabId) {
+          document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'))
+          document.getElementById(tabId).classList.remove('hidden')
+
+          document.getElementById('btn-calendar-view').className =
+            tabId === 'calendar-view'
+              ? 'px-3.5 py-1.5 rounded bg-amber-900 text-white text-xs font-semibold transition shadow'
+              : 'px-3.5 py-1.5 rounded bg-amber-700 text-stone-200 text-xs font-semibold transition shadow'
+          document.getElementById('btn-rolodex-view').className =
+            tabId === 'rolodex-view'
+              ? 'px-3.5 py-1.5 rounded bg-amber-900 text-white text-xs font-semibold transition shadow'
+              : 'px-3.5 py-1.5 rounded bg-amber-700 text-stone-200 text-xs font-semibold transition shadow'
+
+          if (tabId === 'rolodex-view') this.refreshRolodexContainer()
+        }
+
+        refreshRolodexContainer() {
+          this.rolodexView.renderList()
+          this.rolodexView.renderCard(id => this.openEditMealModal(id))
+        }
+
+        openDayModal(day) {
+          this.activeTargetDay = day
+          document.getElementById('modal-date-title').innerText = `${this.calendar.monthNames[this.calendar.monthIndex]} ${day} Schedule`
+
+          const select = document.getElementById('modal-meal-select')
+          select.innerHTML = '<option value="">-- No Meal Planned --</option>'
+
+          this.rolodex.getAll().forEach(m => {
+            let opt = document.createElement('option')
+            opt.value = m.id
+            opt.innerText = `[${m.frequency === 'weekly' ? 'Wk' : 'Mo'}] ${m.name}`
+            select.appendChild(opt)
+          })
+
+          select.value = this.calendar.getMealIdForDay(day) || ''
+          this.toggleModalRecipeBox(select.value)
+          select.onchange = e => this.toggleModalRecipeBox(e.target.value)
+
+          document.getElementById('day-modal').classList.remove('hidden')
+        }
+
+        toggleModalRecipeBox(mealId) {
+          const box = document.getElementById('modal-recipe-box')
+          const txt = document.getElementById('modal-recipe-text')
+          let found = this.rolodex.getMealById(mealId)
+
+          if (found && found.recipe) {
+            txt.innerText = found.recipe
+            box.classList.remove('hidden')
+          } else {
+            box.classList.add('hidden')
+          }
+        }
+
+        async handleSaveDayAdjustment() {
+          this.setLoadingState('btn-save-day', true)
+          let val = document.getElementById('modal-meal-select').value
+
+          await this.calendar.assignMealToDay(this.activeTargetDay, val)
+
+          this.setLoadingState('btn-save-day', false)
+          this.calendarView.render()
+          this.closeModal('day-modal')
+        }
+
+        openNewMealModal() {
+          document.getElementById('recipe-modal-title').innerText = 'Create New Card'
+          document.getElementById('edit-meal-id').value = ''
+          document.getElementById('edit-meal-name').value = ''
+          document.getElementById('edit-meal-frequency').value = 'weekly'
+          document.getElementById('edit-meal-recipe').value = ''
+          document.getElementById('delete-recipe-btn').classList.add('hidden')
+          document.getElementById('recipe-modal').classList.remove('hidden')
+        }
+
+        openEditMealModal(id) {
+          let item = this.rolodex.getMealById(id)
+          if (!item) return
+
+          document.getElementById('recipe-modal-title').innerText = 'Modify Details'
+          document.getElementById('edit-meal-id').value = item.id
+          document.getElementById('edit-meal-name').value = item.name
+          document.getElementById('edit-meal-frequency').value = item.frequency
+          document.getElementById('edit-meal-recipe').value = item.recipe || ''
+          document.getElementById('delete-recipe-btn').classList.remove('hidden')
+          document.getElementById('recipe-modal').classList.remove('hidden')
+        }
+
+        async handleSaveRecipe() {
+          let id = document.getElementById('edit-meal-id').value
+          let name = document.getElementById('edit-meal-name').value.trim()
+          let frequency = document.getElementById('edit-meal-frequency').value
+          let recipe = document.getElementById('edit-meal-recipe').value
+
+          if (!name) {
+            alert('Please declare a name.')
+            return
+          }
+
+          this.setLoadingState('btn-save-recipe', true)
+          await this.rolodex.upsertMeal(id, name, frequency, recipe)
+          this.setLoadingState('btn-save-recipe', false)
+
+          this.refreshRolodexContainer()
+          this.calendarView.render()
+          this.closeModal('recipe-modal')
+        }
+
+        async handleDeleteRecipe() {
+          let id = document.getElementById('edit-meal-id').value
+          if (!id) return
+
+          if (confirm('Delete this recipe card from your rolodex?')) {
+            this.setLoadingState('delete-recipe-btn', true)
+
+            await this.rolodex.deleteMeal(id)
+            await this.calendar.removeMealFromAllDays(id)
+
+            this.setLoadingState('delete-recipe-btn', false)
+            this.refreshRolodexContainer()
+            this.calendarView.render()
+            this.closeModal('recipe-modal')
+          }
+        }
+
+        closeModal(id) {
+          document.getElementById(id).classList.add('hidden')
+        }
+      }
+
+      // Execution Blueprint bootstrap
+      window.onload = async function () {
+        try {
+          const storageService = new CloudStorageService()
+
+          // 2. Data State Manager Entities
+          const rolodex = new MealRolodex(storageService)
+          const calendar = new MealPlannerCalendar(rolodex, storageService)
+
+          // 3. Central Application Visual Engine Controller
+          const appController = new AppController(rolodex, calendar)
+          // Core loading from Supabase Cloud
+          await rolodex.init()
+          await calendar.init()
+
+          // Let the controller paint initial grid layouts and connect clicks
+          appController.init()
+
+          console.log('Meal Calendar App Orchestration Modularly Synchronized!')
+        } catch (err) {
+          console.error('Initialization failure targeting cloud stack:', err)
+        }
+      }
+    </script>
+  </body>
+</html>
