@@ -241,37 +241,61 @@
         constructor() {
           this.tableName = 'app_data'
           this.rowId = 1
+          this.data = null
+
+          this.lastFetched = 0
+          this.cacheDuration = 60 * 60 * 1000 // 1 hour
         }
 
         // Single source of truth fetch from Supabase
         async fetchAllData() {
+          const now = new Date()
+          if (this.data && now - this.lastFetched < this.cacheDuration) return this.data
+          console.log('FETCH: entered')
+
           try {
+            console.log('FETCH: before supabase')
+
             const { data, error } = await supabaseClient.from(this.tableName).select('json_content').eq('id', this.rowId).single()
 
+            console.log('FETCH: after supabase', { data, error })
+
             if (error) throw error
-            return data?.json_content || {}
+
+            this.data = data?.json_content || {}
+            this.lastFetched = now
+
+            return this.data
           } catch (err) {
-            console.warn('Cloud read failed or empty. Using fallback local state.', err.message)
+            console.error('FETCH: caught error', err)
             return {}
           }
         }
 
         // Save a specific key (like 'meals' or 'calendar_plan') without erasing other keys
         async saveKey(key, dataToSave) {
+          console.log('SAVE: entered', key)
+
           try {
-            // 1. Fetch current full state so we don't overwrite other properties
+            console.log('SAVE: before fetch')
+
             const currentFullData = await this.fetchAllData()
 
-            // 2. Patch only the property we care about
+            console.log('SAVE: after fetch', currentFullData)
+
             currentFullData[key] = dataToSave
 
-            // 3. Push the entire unified payload back up
+            console.log('SAVE: before update')
+
             const { error } = await supabaseClient.from(this.tableName).update({ json_content: currentFullData }).eq('id', this.rowId)
 
+            console.log('SAVE: after update', error)
+
             if (error) throw error
-            console.log(`Cloud storage updated for key: [${key}]`)
+
+            console.log('SAVE: complete')
           } catch (err) {
-            console.error(`Failed to save key [${key}] to cloud:`, err.message)
+            console.error('SAVE: caught error', err)
           }
         }
       }
@@ -321,7 +345,7 @@
               this.meals[idx] = { ...this.meals[idx], name, frequency, recipe }
             }
           } else {
-            const newId = self.cripto.randomUUID();
+            const newId = self.crypto.randomUUID()
             this.meals.push({ id: newId, name, frequency, recipe, historyWeight: 5 })
             this.activeMealId = newId
           }
@@ -795,79 +819,104 @@
       }
 
       async function migrateLocalStorageToCloud(storageService) {
-          const OLD_MEALS_KEY = 'rolodex_meals';
-          const OLD_PLAN_KEY = 'current_meal_plan';
-      
-          // 1. Check if there are any old meals sitting in her device's localStorage
-          const storedMealsText = localStorage.getItem(OLD_MEALS_KEY);
-          if (!storedMealsText) {
-              console.log("No old localStorage data found to migrate.");
-              return; 
-          }
-      
-          console.log("Found old data! Starting migration to Supabase...");
-      
-          try {
-              const oldMeals = JSON.parse(storedMealsText);
-              
-              // Load old calendar if it exists
-              let oldCalendarDays = {};
-              const storedPlanText = localStorage.getItem(OLD_PLAN_KEY);
-              if (storedPlanText) {
-                  const parsedPlan = JSON.parse(storedPlanText);
-                  oldCalendarDays = parsedPlan.days || {};
-              }
-      
-              // 2. Create a map to link old number IDs to new string UUIDs
-              // Example: { 1: "f81d4fae-7dec-11d0-a765-00a0c91e6bf6" }
-              const idMap = {};
-              const migratedMeals = oldMeals.map(meal => {
-                  const newUuid = self.crypto.randomUUID(); // Generates clean native UUID
-                  idMap[meal.id] = newUuid; 
-                  
-                  return {
-                      ...meal,
-                      id: newUuid // Overwrite numeric ID with string UUID
-                  };
-              });
-      
-              // 3. Update the calendar days so they point to the new UUID strings
-              const migratedCalendarDays = {};
-              for (let day in oldCalendarDays) {
-                  const oldMealId = oldCalendarDays[day];
-                  if (idMap[oldMealId]) {
-                      migratedCalendarDays[day] = idMap[oldMealId]; // Match with the new UUID
-                  }
-              }
-      
-              const migratedCalendarPayload = {
-                  monthKey: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
-                  days: migratedCalendarDays
-              };
-      
-              // 4. Send the updated records to Supabase row 1
-              await storageService.saveKey('meals', migratedMeals);
-              await storageService.saveKey('calendar_plan', migratedCalendarPayload);
-      
-              console.log("Migration successful! Data seeded to Supabase.");
-      
-              // 5. Clean up localStorage so this script never triggers on this device again
-              localStorage.removeItem(OLD_MEALS_KEY);
-              localStorage.removeItem(OLD_PLAN_KEY);
-      
-          } catch (err) {
-              console.error("Migration failed:", err);
-          }
-      }
+        const OLD_MEALS_KEY = 'rolodex_meals'
+        const OLD_PLAN_KEY = 'current_meal_plan'
 
+        // 1. Verify source data exists
+        const storedMealsText = localStorage.getItem(OLD_MEALS_KEY)
+        const storedPlanText = localStorage.getItem(OLD_PLAN_KEY)
+
+        alert(`LocalStorage:\n\n` + `Meals: ${!!storedMealsText}\n` + `Plan: ${!!storedPlanText}`)
+
+        if (!storedMealsText || !storedPlanText) {
+          console.log('No old localStorage data found to migrate.')
+          return
+        }
+
+        try {
+          // 2. Get the current cloud data
+          const cloudData = await storageService.fetchAllData()
+
+          alert(`Retrieved cloud data:\n\n${JSON.stringify(cloudData, null, 2)}`)
+
+          // 3. Read old localStorage data
+          const oldMeals = JSON.parse(storedMealsText)
+
+          let oldCalendarDays = {}
+          if (storedPlanText) {
+            const parsedPlan = JSON.parse(storedPlanText)
+            oldCalendarDays = parsedPlan.days || {}
+          }
+
+          // 4. Convert meal IDs to UUIDs
+          const idMap = {}
+
+          const migratedMeals = oldMeals.map(meal => {
+            const newUuid = crypto.randomUUID()
+            idMap[meal.id] = newUuid
+
+            return {
+              ...meal,
+              id: newUuid,
+            }
+          })
+
+          // 5. Convert calendar references to UUIDs
+          const migratedCalendarDays = {}
+
+          for (let day in oldCalendarDays) {
+            const oldMealId = oldCalendarDays[day]
+
+            if (idMap[oldMealId]) {
+              migratedCalendarDays[day] = idMap[oldMealId]
+            }
+          }
+
+          const migratedCalendarPayload = {
+            monthKey: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+            days: migratedCalendarDays,
+          }
+
+          // 6. Show exactly what we're about to save
+          const migratedData = {
+            ...cloudData,
+            meals: migratedMeals,
+            calendar_plan: migratedCalendarPayload,
+          }
+
+          alert(`Modified data:\n\n${JSON.stringify(migratedData, null, 2)}`)
+
+          // 7. Save it
+          await storageService.saveKey('meals', migratedMeals)
+          await storageService.saveKey('calendar_plan', migratedCalendarPayload)
+
+          // 8. Force the storage service to actually check Supabase
+          storageService.lastFetched = 0
+
+          // 9. Fetch again and verify what was persisted
+          const verifiedData = await storageService.fetchAllData()
+
+          alert(`Verified data from Supabase:\n\n${JSON.stringify(verifiedData, null, 2)}`)
+
+          console.log('Migration successful! Data seeded to Supabase.')
+
+          // Leave these commented out until we've verified everything.
+          // localStorage.removeItem(OLD_MEALS_KEY)
+          // localStorage.removeItem(OLD_PLAN_KEY)
+        } catch (err) {
+          alert(`Migration failed:\n\n${err.message}`)
+          console.error('Migration failed:', err)
+        }
+      }
       // Execution Blueprint bootstrap
       window.onload = async function () {
+        console.count('WINDOW ONLOAD')
         try {
           const storageService = new CloudStorageService()
 
           // RUN MIGRATION: Checks local storage, converts IDs to UUIDs, seeds Supabase, cleans up keys
-          await migrateLocalStorageToCloud(storageService);
-          
+          await migrateLocalStorageToCloud(storageService)
+
           // 2. Data State Manager Entities
           const rolodex = new MealRolodex(storageService)
           const calendar = new MealPlannerCalendar(rolodex, storageService)
